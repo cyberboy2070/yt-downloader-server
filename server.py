@@ -12,10 +12,14 @@ class DownloadRequest(BaseModel):
 
 @app.post("/download")
 def download_video(req: DownloadRequest):
+    # yt-dlp auf dem Server automatisch auf die neueste Version bringen gegen YouTube-Sperren
+    subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], capture_output=True)
+    
     output_template = os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s")
     
     command = [
         "yt-dlp",
+        "--geo-bypass",
         "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / b",
         "--merge-output-format", "mp4",
         "-o", output_template,
@@ -23,7 +27,7 @@ def download_video(req: DownloadRequest):
     ]
     
     try:
-        subprocess.run(command, capture_output=True, text=True, check=True)
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
         files = os.listdir(DOWNLOAD_DIR)
         if not files:
             return {"status": "error", "message": "Keine Datei gefunden"}
