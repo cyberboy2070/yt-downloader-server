@@ -1,52 +1,38 @@
-import os
 import subprocess
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI()
-DOWNLOAD_DIR = "/tmp/downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 class DownloadRequest(BaseModel):
     url: str
 
-@app.post("/download")
-def download_video(req: DownloadRequest):
-    # yt-dlp auf dem Server automatisch auf die neueste Version bringen gegen YouTube-Sperren
-    subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], capture_output=True)
-    
-    output_template = os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s")
-    
+@app.post("/get-download-link")
+def get_download_link(req: DownloadRequest):
+    # Wir fragen yt-dlp nur nach der direkten MP4-Download-URL von YouTube
     command = [
         "yt-dlp",
-        "--geo-bypass",
-        "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / b",
-        "--merge-output-format", "mp4",
-        "-o", output_template,
+        "--js-runtimes", "node",
+        "--extractor-args", "youtube:player_client=ios,android",
+        "--get-url",
+        "-f", "b[ext=mp4]/best", # Holt ein fertiges Video inkl. Ton (kein manuelles FFmpeg-Mergen auf dem Server nötig!)
         req.url
     ]
     
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
-        files = os.listdir(DOWNLOAD_DIR)
-        if not files:
-            return {"status": "error", "message": "Keine Datei gefunden"}
+        direct_url = result.stdout.strip()
+        
+        if not direct_url:
+            return {"status": "error", "message": "Konnte keinen Link generieren"}
             
-        latest_file = max([os.path.join(DOWNLOAD_DIR, f) for f in files], key=os.path.getctime)
-        return {"status": "success", "filename": os.path.basename(latest_file)}
-    
+        return {"status": "success", "url": direct_url}
+        
     except subprocess.CalledProcessError as e:
         return {"status": "error", "message": e.stderr}
 
-@app.get("/file/{filename}")
-def get_file(filename: str):
-    from fastapi.responses import FileResponse
-    file_path = os.path.join(DOWNLOAD_DIR, filename)
-    if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="video/mp4", filename=filename)
-    return {"error": "Datei nicht gefunden"}
-
 if __name__ == "__main__":
     import uvicorn
+    import os
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
